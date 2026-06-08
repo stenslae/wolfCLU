@@ -1274,8 +1274,8 @@ int wolfCLU_genKey_Dilithium(WC_RNG* rng, char* fName, int directive, int fmt,
 #endif /* HAVE_DILITHIUM && !WOLFCLU_NO_FILESYSTEM */
 }
 
-int wolfCLU_genKey_ML_DSA(WC_RNG* rng, char* fName, int directive, int fmt,
-                            int keySz, int level, int withAlg)
+int wolfCLU_genKey_ML_DSA(WC_RNG* rng, const char* fName, int directive,
+                            int fmt, int keySz, int level, int withAlg)
 {
 #if defined(HAVE_DILITHIUM) && !defined(WOLFCLU_NO_FILESYSTEM)
     int    ret = WOLFCLU_SUCCESS;
