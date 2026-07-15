@@ -607,11 +607,16 @@ int wolfCLU_PKCS8(int argc, char** argv);
  * @brief handles PKCS12 command
  */
 int wolfCLU_PKCS12(int argc, char** argv);
-
 /**
- * @brief function to write 0 at each index of 'mem' passed in
+ * @brief read an entire file into a newly XMALLOC'd buffer, capped at maxSz.
+ * On success *outBuf and *outSz are set; caller frees *outBuf with XFREE
+ * (DYNAMIC_TYPE_TMP_BUFFER). Returns WOLFCLU_SUCCESS or an error code.
  */
-void wolfCLU_ForceZero(void* mem, unsigned int len);
+int wolfCLU_ReadFileToBuffer(const char* path, long maxSz, byte** outBuf,
+        int* outSz);
+
+
+
 
 /**
  * @brief example client

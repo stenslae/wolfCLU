@@ -1573,10 +1573,68 @@ void wolfCLU_convertToLower(char* s, int sSz)
 }
 
 
-void wolfCLU_ForceZero(void* mem, unsigned int len)
+
+
+
+int wolfCLU_ReadFileToBuffer(const char* path, long maxSz, byte** outBuf,
+        int* outSz)
 {
-    volatile byte* z = (volatile byte*)mem;
-    while (len--) *z++ = 0;
+    int   sz;
+    long  fsz;
+    byte* buf = NULL;
+    XFILE f;
+
+    if (path == NULL || outBuf == NULL || outSz == NULL || maxSz <= 0) {
+        return BAD_FUNC_ARG;
+    }
+    *outBuf = NULL;
+    *outSz  = 0;
+
+    f = XFOPEN(path, "rb");
+    if (f == XBADFILE) {
+        return BAD_FUNC_ARG;
+    }
+
+    if (XFSEEK(f, 0, XSEEK_END) != 0) {
+        XFCLOSE(f);
+        return WOLFCLU_FATAL_ERROR;
+    }
+    fsz = XFTELL(f);
+    if (XFSEEK(f, 0, XSEEK_SET) != 0) {
+        XFCLOSE(f);
+        return WOLFCLU_FATAL_ERROR;
+    }
+    if (fsz <= 0) {
+        wolfCLU_LogError("%s: file is empty or unreadable", path);
+        XFCLOSE(f);
+        return WOLFCLU_FATAL_ERROR;
+    }
+    if (fsz > maxSz || fsz > (long)INT_MAX) {
+        wolfCLU_LogError("%s: size %ld exceeds %ld-byte file limit",
+                path, fsz, maxSz);
+        XFCLOSE(f);
+        return WOLFCLU_FATAL_ERROR;
+    }
+    sz = (int)fsz;
+
+    /* +1/NUL-terminate: matches other PEM-buffer readers in this codebase. */
+    buf = (byte*)XMALLOC(sz + 1, HEAP_HINT, DYNAMIC_TYPE_TMP_BUFFER);
+    if (buf == NULL) {
+        XFCLOSE(f);
+        return MEMORY_E;
+    }
+
+    if (XFREAD(buf, 1, (size_t)sz, f) != (size_t)sz) {
+        XFCLOSE(f);
+        XFREE(buf, HEAP_HINT, DYNAMIC_TYPE_TMP_BUFFER);
+        return WOLFCLU_FAILURE;
+    }
+    buf[sz] = '\0';
+    XFCLOSE(f);
+
+    *outBuf = buf;
+    *outSz  = sz;
+    return WOLFCLU_SUCCESS;
 }
 
 #ifndef WOLFCLU_NO_TERM_SUPPORT
