@@ -865,12 +865,10 @@ static int ocspResponder(OcspResponderConfig* config)
         if (transportSendResponse(clientfd, transportType, respBuffer, (int)respSz) != 0)
             goto continue_loop;
 
-        if (ocspStatus == OCSP_SUCCESSFUL) {
-            /* Only count successfully processed requests toward the -nrequest
-             * limit. Failed reads/sends jump to continue_loop above, so a
-             * misbehaving client cannot exhaust the budget. */
-            requestsProcessed++;
-        }
+        /* Only count requests that were actually processed (a response,
+         * success or OCSP-level error, was sent) toward the -nrequest
+         * limit. */
+        requestsProcessed++;
 
         /* Check if we've hit the request limit */
         if (config->nrequest > 0 && requestsProcessed >= config->nrequest) {
@@ -897,7 +895,7 @@ cleanup:
     XFREE(caCertDer, HEAP_HINT, DYNAMIC_TYPE_TMP_BUFFER);
     XFREE(signerCertDer, HEAP_HINT, DYNAMIC_TYPE_TMP_BUFFER);
     if (signerKeyDer != NULL && signerKeyDerSz > 0)
-        wolfCLU_ForceZero(signerKeyDer, signerKeyDerSz);
+        wc_ForceZero(signerKeyDer, signerKeyDerSz);
     XFREE(signerKeyDer, HEAP_HINT, DYNAMIC_TYPE_TMP_BUFFER);
     XFREE(caSubject, HEAP_HINT, DYNAMIC_TYPE_TMP_BUFFER);
 
