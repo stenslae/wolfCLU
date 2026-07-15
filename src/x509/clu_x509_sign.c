@@ -932,11 +932,11 @@ int wolfCLU_GenChimeraCertSign(WOLFSSL_BIO *bioCaKey, WOLFSSL_BIO *bioAltCaKey,
     }
 
     if (caKeyBuf != NULL)
-        wolfCLU_ForceZero(caKeyBuf, LARGE_TEMP_SZ);
+        wc_ForceZero(caKeyBuf, LARGE_TEMP_SZ);
     if (altCaKeyBuf != NULL)
-        wolfCLU_ForceZero(altCaKeyBuf, LARGE_TEMP_SZ);
+        wc_ForceZero(altCaKeyBuf, LARGE_TEMP_SZ);
     if (serverKeyBuf != NULL)
-        wolfCLU_ForceZero(serverKeyBuf, LARGE_TEMP_SZ);
+        wc_ForceZero(serverKeyBuf, LARGE_TEMP_SZ);
     XFREE(caKeyBuf, HEAP_HINT, DYNAMIC_TYPE_TMP_BUFFER);
     XFREE(altCaKeyBuf, HEAP_HINT, DYNAMIC_TYPE_TMP_BUFFER);
     XFREE(sapkiBuf, HEAP_HINT, DYNAMIC_TYPE_TMP_BUFFER);

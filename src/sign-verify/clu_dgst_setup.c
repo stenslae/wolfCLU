@@ -306,7 +306,7 @@ static int wolfCLU_dgstHmac(WOLFSSL_BIO* dataBio, char* hmacKey,
     /* wolfCLU_hexToBin allocates keyBin with a NULL heap hint; zero the
      * key material and free it with the matching hint. */
     if (keyBin != NULL) {
-        wolfCLU_ForceZero(keyBin, keyBinSz);
+        wc_ForceZero(keyBin, keyBinSz);
         XFREE(keyBin, NULL, DYNAMIC_TYPE_TMP_BUFFER);
     }
 
