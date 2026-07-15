@@ -874,3 +874,492 @@ int wolfCLU_certSetup(int argc, char** argv)
     return WOLFCLU_FATAL_ERROR;
 #endif
 }
+
+
+#ifdef WOLFSSL_CERT_GEN
+
+int wolfCLU_SetCertNameFieldByNid(CertName* dst, int nid, const char* val,
+        int valLen)
+{
+    char* field = NULL;
+
+    if (dst == NULL || val == NULL || valLen <= 0) {
+        return BAD_FUNC_ARG;
+    }
+
+    switch (nid) {
+        case NID_countryName:
+            field = dst->country;
+            break;
+        case NID_stateOrProvinceName:
+            field = dst->state;
+            break;
+        case NID_localityName:
+            field = dst->locality;
+            break;
+        case NID_organizationName:
+            field = dst->org;
+            break;
+        case NID_organizationalUnitName:
+            field = dst->unit;
+            break;
+        case NID_commonName:
+            field = dst->commonName;
+            break;
+        case NID_emailAddress:
+            field = dst->email;
+            break;
+        default:
+            break;
+    }
+
+    if (field != NULL) {
+        if (valLen > CTC_NAME_SIZE - 1) {
+            wolfCLU_LogError("DN field (nid %d) exceeds %d-byte limit",
+                    nid, CTC_NAME_SIZE - 1);
+            return WOLFCLU_FATAL_ERROR;
+        }
+        XMEMCPY(field, val, (size_t)valLen);
+        field[valLen] = '\0';
+    }
+
+    return WOLFCLU_SUCCESS;
+}
+
+int wolfCLU_CopyX509NameToCert(WOLFSSL_X509_NAME* name, CertName* dst)
+{
+    int i;
+
+    if (name == NULL || dst == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
+    for (i = 0; i < wolfSSL_X509_NAME_entry_count(name); i++) {
+        WOLFSSL_X509_NAME_ENTRY* e;
+        WOLFSSL_ASN1_OBJECT* obj;
+        WOLFSSL_ASN1_STRING* str;
+        const char* val;
+        int nid;
+        int valLen;
+        int ret;
+
+        e = wolfSSL_X509_NAME_get_entry(name, i);
+        if (e == NULL) {
+            continue;
+        }
+        obj = wolfSSL_X509_NAME_ENTRY_get_object(e);
+        str = wolfSSL_X509_NAME_ENTRY_get_data(e);
+        if (obj == NULL || str == NULL) {
+            continue;
+        }
+
+        nid    = wolfSSL_OBJ_obj2nid(obj);
+        val    = (const char*)wolfSSL_ASN1_STRING_data(str);
+        valLen = wolfSSL_ASN1_STRING_length(str);
+        if (val == NULL || valLen <= 0) {
+            continue;
+        }
+
+        ret = wolfCLU_SetCertNameFieldByNid(dst, nid, val, valLen);
+        if (ret != WOLFCLU_SUCCESS) {
+            return ret;
+        }
+    }
+
+    return WOLFCLU_SUCCESS;
+}
+
+/*Convert DER to a freshly allocated PEM buffer. */
+
+int wolfCLU_Asn1TimeToCertDate(byte* out, int outSz,
+        const WOLFSSL_ASN1_TIME* t)
+{
+    int sz, i;
+
+    if (out == NULL || t == NULL || t->length <= 0 ||
+            t->length > CTC_DATE_SIZE) {
+        return BUFFER_E;
+    }
+    /* Validate DER tag: UTCTime (23) or GeneralizedTime (24) expected. */
+    if (t->type != V_ASN1_UTCTIME && t->type != V_ASN1_GENERALIZEDTIME) {
+        return BUFFER_E;
+    }
+    if (outSz <= 0) {
+        return BUFFER_E;
+    }
+    /* t->length <= CTC_DATE_SIZE (32), so t->length + 6 cannot overflow int. */
+    if (t->length + 6 > outSz) {
+        return BUFFER_E;
+    }
+
+    sz = (int)SetLength((word32)t->length, out + 1) + 1;
+    if (sz + t->length > outSz) {
+        return BUFFER_E;
+    }
+
+    out[0] = (byte)t->type;
+    for (i = 0; i < t->length; i++) {
+        out[sz + i] = t->data[i];
+    }
+    return t->length + sz;
+}
+
+/* Copy subjectAltName from CSR to cert. Returns WOLFCLU_SUCCESS or error. */
+#if defined(WOLFSSL_ALT_NAMES)
+int wolfCLU_CopyX509SanToCert(WOLFSSL_X509* x509, Cert* cert)
+{
+    int extIdx;
+
+    if (x509 == NULL || cert == NULL) {
+        return WOLFCLU_SUCCESS;
+    }
+    if (cert->altNamesSz > 0) {
+        wolfCLU_Log(WOLFCLU_L0, "Warning: wolfCLU_CopyX509SanToCert called "
+                "on a Cert that already has altNames; skipping to avoid "
+                "double-population");
+        return WOLFCLU_SUCCESS;
+    }
+
+    extIdx = wolfSSL_X509_get_ext_by_NID(x509, NID_subject_alt_name, -1);
+    if (extIdx < 0) {
+        return WOLFCLU_SUCCESS;
+    }
+
+#if defined(OPENSSL_EXTRA) || defined(OPENSSL_ALL) || defined(WOLFSSL_QT)
+    {
+        WOLFSSL_X509_EXTENSION* ext;
+        WOLFSSL_ASN1_STRING* sanData;
+
+        ext = wolfSSL_X509_get_ext(x509, extIdx);
+        if (ext == NULL) {
+            wolfCLU_LogError("Failed to get subjectAltName extension");
+            return WOLFCLU_FATAL_ERROR;
+        }
+
+        sanData = wolfSSL_X509_EXTENSION_get_data(ext);
+        if (sanData == NULL || sanData->data == NULL || sanData->length <= 0) {
+            return WOLFCLU_SUCCESS;
+        }
+
+        if (sanData->length > (int)sizeof(cert->altNames)) {
+            wolfCLU_LogError(
+                "subjectAltName extension too large for cert buffer");
+            return WOLFCLU_FATAL_ERROR;
+        }
+
+        XMEMCPY(cert->altNames, sanData->data, (size_t)sanData->length);
+        cert->altNamesSz = sanData->length;
+    }
+#else
+    (void)extIdx;
+    /* wolfSSL_X509_get_ext requires OPENSSL_EXTRA. */
+    wolfCLU_Log(WOLFCLU_L0, "Warning: subjectAltName not copied; build with "
+            "OPENSSL_EXTRA to preserve SANs in ML-DSA CA-signed certs");
+#endif /* OPENSSL_EXTRA || OPENSSL_ALL || WOLFSSL_QT */
+
+    return WOLFCLU_SUCCESS;
+}
+#endif /* WOLFSSL_ALT_NAMES */
+
+#ifdef WOLFSSL_CERT_EXT
+/* NIDs that wolfCLU_X509FillCert already transfers to the Cert explicitly, so\n * the generic copy below must skip them to avoid duplicating an extension. */
+int wolfCLU_ExtHandledNid(int nid)
+{
+    switch (nid) {
+        case NID_basic_constraints:
+        case NID_key_usage:
+        case NID_ext_key_usage:
+        case NID_subject_key_identifier:
+        case NID_authority_key_identifier:
+            return 1;
+#if defined(WOLFSSL_ALT_NAMES)
+        case NID_subject_alt_name:
+            /* only handled explicitly (wolfCLU_CopyX509SanToCert) when\n             * WOLFSSL_ALT_NAMES is compiled in; otherwise fall through so\n             * the generic copier below at least warns instead of silently\n             * dropping the SAN. */
+            return 1;
+#endif /* WOLFSSL_ALT_NAMES */
+        default:
+            return 0;
+    }
+}
+
+/* Carry CSR extensions that wolfCLU_X509FillCert does not handle explicitly\n * onto the wolfcrypt Cert. */
+int wolfCLU_CopyX509ExtsToCert(WOLFSSL_X509* x509, Cert* cert)
+{
+    int ret = WOLFCLU_SUCCESS;
+    int count = wolfSSL_X509_get_ext_count(x509);
+    int i;
+    int uncopied = 0;
+
+    for (i = 0; ret == WOLFCLU_SUCCESS && i < count; i++) {
+        WOLFSSL_X509_EXTENSION* ext = wolfSSL_X509_get_ext(x509, i);
+        WOLFSSL_ASN1_OBJECT* obj;
+        int nid;
+
+        if (ext == NULL) {
+            continue;
+        }
+        obj = wolfSSL_X509_EXTENSION_get_object(ext);
+        if (obj == NULL) {
+            continue;
+        }
+        nid = wolfSSL_OBJ_obj2nid(obj);
+        if (wolfCLU_ExtHandledNid(nid)) {
+            continue; /* already copied explicitly by wolfCLU_X509FillCert */
+        }
+
+#if defined(WOLFSSL_ASN_TEMPLATE) && defined(WOLFSSL_CUSTOM_OID) && \
+    defined(HAVE_OID_ENCODING)
+        {
+            char oid[80];
+            WOLFSSL_ASN1_STRING* data;
+            const unsigned char* val;
+            int valSz;
+            int crit;
+
+            /* numerical (dotted-decimal) OID, the form wc_SetCustomExtension
+             * expects */
+            if (wolfSSL_OBJ_obj2txt(oid, (int)sizeof(oid), obj, 1) <= 0) {
+                wolfCLU_Log(WOLFCLU_L0,
+                        "Warning: could not encode an extension "
+                        "OID; not copied to the certificate");
+                uncopied = 1;
+                continue;
+            }
+            data = wolfSSL_X509_EXTENSION_get_data(ext);
+            if (data == NULL) {
+                continue;
+            }
+            val = wolfSSL_ASN1_STRING_get0_data(data);
+            valSz = wolfSSL_ASN1_STRING_length(data);
+            if (val == NULL || valSz <= 0) {
+                continue;
+            }
+            crit = wolfSSL_X509_EXTENSION_get_critical(ext);
+            /*wc_SetCustomExtension stores the OID pointer directly without copying. */
+            {
+                char* oidHeap = (char*)XMALLOC(XSTRLEN(oid) + 1, HEAP_HINT,
+                        DYNAMIC_TYPE_TMP_BUFFER);
+                if (oidHeap == NULL) {
+                    ret = MEMORY_E;
+                }
+                else {
+                    XMEMCPY(oidHeap, oid, XSTRLEN(oid) + 1);
+                    if (wc_SetCustomExtension(cert, crit, oidHeap, val,
+                                (word32)valSz) < 0) {
+                        wolfCLU_LogError("Failed to copy extension (OID %s) to the "
+                                "ML-DSA certificate", oid);
+                        XFREE(oidHeap, HEAP_HINT, DYNAMIC_TYPE_TMP_BUFFER);
+                        ret = WOLFCLU_FATAL_ERROR;
+                    }
+                }
+            }
+        }
+#else
+        (void)nid;
+        uncopied = 1; /* this build cannot copy arbitrary extensions */
+#endif /* WOLFSSL_ASN_TEMPLATE && WOLFSSL_CUSTOM_OID && \ */
+    }
+
+    if (ret == WOLFCLU_SUCCESS && uncopied) {
+        wolfCLU_Log(WOLFCLU_L0,
+                "Warning: the ML-DSA CA-sign path carries only "
+                "basicConstraints, keyUsage, extKeyUsage, "
+                "subjectKeyIdentifier, authorityKeyIdentifier and "
+                "subjectAltName; other CSR extensions were not copied to the "
+                "issued certificate (build wolfSSL with WOLFSSL_CUSTOM_OID + "
+                "HAVE_OID_ENCODING to carry arbitrary extensions)");
+    }
+
+    return ret;
+}
+#endif /* WOLFSSL_CERT_EXT */
+
+/*Populate a wolfcrypt Cert from a CSR for ML-DSA CA signing. */
+int wolfCLU_X509FillCert(WOLFSSL_X509* x509, Cert* cert, int sigType,
+        void* subjWcKey, int subjWcKeyType,
+        void* caWcKey, int caWcKeyType, WOLFSSL_X509* caCert,
+        int policySanitized)
+{
+    int ret = WOLFCLU_SUCCESS;
+    int ku;
+    int isCA;
+    WOLFSSL_X509_NAME* name;
+    const WOLFSSL_ASN1_TIME* nb;
+    const WOLFSSL_ASN1_TIME* na;
+
+    if (x509 == NULL || cert == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
+    /* x509's basicConstraints/keyUsage can be attacker-controlled CSR content;\n     * refuse to sign unless policySanitized says it's safe. */
+    if (!policySanitized) {
+        wolfCLU_LogError("CSR policy not sanitized; refusing to sign");
+        return WOLFCLU_FATAL_ERROR;
+    }
+
+    ku = wolfSSL_X509_get_keyUsage(x509);
+    /* Use get_isCA() to read the in-memory isCA field, which correctly\n     * reflects any config overrides applied via wolfSSL_X509_add_ext(). */
+    isCA = wolfSSL_X509_get_isCA(x509);
+
+    if (wc_InitCert(cert) != 0) {
+        return WOLFCLU_FATAL_ERROR;
+    }
+    cert->version = 2; /* X.509 v3; wc_InitCert default */
+    cert->sigType = sigType;
+
+    cert->isCA = isCA ? 1 : 0;
+    cert->pathLen = 0;
+    cert->pathLenSet = 0;
+    /* Propagate the CSR/config's pathLenConstraint if set. */
+    if (isCA && wolfSSL_X509_get_isSet_pathLength(x509)) {
+        cert->pathLen = wolfSSL_X509_get_pathLength(x509);
+        cert->pathLenSet = 1;
+    }
+
+#ifdef WOLFSSL_CERT_EXT
+    if (isCA) {
+        cert->keyUsage = KU_KEY_CERT_SIGN | KU_CRL_SIGN;
+        /* Apply CSR key usage only when it carries both CA bits; if it also\n         * carries extra bits the issued cert will be wider than the\n         * CA-only default. */
+        if (ku >= 0 && (ku & (KU_KEY_CERT_SIGN | KU_CRL_SIGN)) ==
+                            (KU_KEY_CERT_SIGN | KU_CRL_SIGN)) {
+            cert->keyUsage = ku;
+        }
+    }
+    else {
+        /* For signature-only primitives (like ML-DSA or Ed25519), KU_KEY_ENCIPHERMENT\n         * does not apply. In a fully generalized generic function, this should check the\n         * key type. Here we assume signature-only. */
+        cert->keyUsage = KU_DIGITAL_SIGNATURE;
+        if (ku >= 0) {
+            int leafKu = ku & ~(KU_KEY_CERT_SIGN | KU_CRL_SIGN);
+            if (leafKu > 0)
+                cert->keyUsage = (word16)leafKu;
+        }
+    }
+
+    {
+        /* wolfSSL_X509_get_extended_key_usage() returns WOLFSSL_XKU_* bits
+         * (x509v3). */
+        unsigned int xku = wolfSSL_X509_get_extended_key_usage(x509);
+        byte eku = 0;
+        if (xku & WOLFSSL_XKU_SSL_SERVER) eku |= EXTKEYUSE_SERVER_AUTH;
+        if (xku & WOLFSSL_XKU_SSL_CLIENT) eku |= EXTKEYUSE_CLIENT_AUTH;
+        if (xku & WOLFSSL_XKU_SMIME)      eku |= EXTKEYUSE_EMAILPROT;
+        if (xku & WOLFSSL_XKU_CODE_SIGN)  eku |= EXTKEYUSE_CODESIGN;
+        if (xku & WOLFSSL_XKU_OCSP_SIGN)  eku |= EXTKEYUSE_OCSP_SIGN;
+        if (xku & WOLFSSL_XKU_TIMESTAMP)  eku |= EXTKEYUSE_TIMESTAMP;
+        if (xku & WOLFSSL_XKU_ANYEKU)     eku |= EXTKEYUSE_ANY;
+        if (xku & (WOLFSSL_XKU_SGC | WOLFSSL_XKU_DVCS)) {
+            /* wolfcrypt's EXTKEYUSE_* has no SGC/DVCS equivalent. */
+            wolfCLU_Log(WOLFCLU_L0,
+                    "Warning: CSR extendedKeyUsage SGC/DVCS purpose "
+                    "dropped, not supported on issued cert");
+        }
+        cert->extKeyUsage = eku;
+    }
+#else
+    (void)isCA;
+    (void)ku;
+#endif /* WOLFSSL_CERT_EXT */
+
+    nb = wolfSSL_X509_get_notBefore(x509);
+    na = wolfSSL_X509_get_notAfter(x509);
+    if (nb != NULL) {
+        cert->beforeDateSz = wolfCLU_Asn1TimeToCertDate(cert->beforeDate,
+                CTC_DATE_SIZE, nb);
+        if (cert->beforeDateSz <= 0) {
+            wolfCLU_LogError("Error converting notBefore date");
+            ret = WOLFCLU_FATAL_ERROR;
+        }
+    }
+    if (ret == WOLFCLU_SUCCESS && na != NULL) {
+        cert->afterDateSz = wolfCLU_Asn1TimeToCertDate(cert->afterDate,
+                CTC_DATE_SIZE, na);
+        if (cert->afterDateSz <= 0) {
+            wolfCLU_LogError("Error converting notAfter date");
+            ret = WOLFCLU_FATAL_ERROR;
+        }
+    }
+
+    if (ret == WOLFCLU_SUCCESS) {
+        byte serial[EXTERNAL_SERIAL_SIZE];
+        int serialSz = EXTERNAL_SERIAL_SIZE;
+
+        if (wolfSSL_X509_get_serial_number(x509, serial, &serialSz) ==
+                WOLFSSL_SUCCESS && serialSz > 0) {
+            if (serialSz > CTC_SERIAL_SIZE) {
+                wolfCLU_LogError("Serial number too large");
+                ret = WOLFCLU_FATAL_ERROR;
+            }
+            else {
+                XMEMCPY(cert->serial, serial, (size_t)serialSz);
+                cert->serialSz = serialSz;
+            }
+        }
+    }
+
+    if (ret == WOLFCLU_SUCCESS) {
+        name = wolfSSL_X509_get_subject_name(x509);
+        if (name == NULL) {
+            wolfCLU_LogError("CSR has no subject name");
+            ret = BAD_FUNC_ARG;
+        }
+        else {
+            ret = wolfCLU_CopyX509NameToCert(name, &cert->subject);
+        }
+    }
+
+    if (ret == WOLFCLU_SUCCESS) {
+        /*CA-signed: issuer is CA's subject. */
+        name = (caCert != NULL)
+                ? wolfSSL_X509_get_subject_name(caCert)
+                : wolfSSL_X509_get_subject_name(x509);
+        cert->selfSigned = (caCert == NULL) ? 1 : 0;
+        if (name != NULL) {
+            ret = wolfCLU_CopyX509NameToCert(name, &cert->issuer);
+        }
+        else if (caCert != NULL) {
+            wolfCLU_LogError("CA certificate has no subject name");
+            ret = BAD_FUNC_ARG;
+        }
+    }
+
+#ifdef WOLFSSL_CERT_EXT
+    if (ret == WOLFCLU_SUCCESS &&
+            wolfSSL_X509_get_ext_by_NID(x509, NID_subject_key_identifier,
+                -1) >= 0) {
+        /* subjWcKey is always non-NULL here: the caller validates subjKey != NULL
+         * before calling this function. */
+        if (subjWcKey == NULL ||
+                wc_SetSubjectKeyIdFromPublicKey_ex(cert, subjWcKeyType,
+                    subjWcKey) < 0) {
+            wolfCLU_LogError("Error setting subject key identifier");
+            ret = WOLFCLU_FATAL_ERROR;
+        }
+    }
+
+    if (ret == WOLFCLU_SUCCESS && caWcKey != NULL &&
+            wolfSSL_X509_get_ext_by_NID(x509, NID_authority_key_identifier,
+                -1) >= 0) {
+        if (wc_SetAuthKeyIdFromPublicKey_ex(cert, caWcKeyType,
+                    caWcKey) < 0) {
+            wolfCLU_LogError("Error setting authority key identifier");
+            ret = WOLFCLU_FATAL_ERROR;
+        }
+    }
+#endif /* WOLFSSL_CERT_EXT */
+
+#if defined(WOLFSSL_ALT_NAMES)
+    if (ret == WOLFCLU_SUCCESS) {
+        ret = wolfCLU_CopyX509SanToCert(x509, cert);
+    }
+#endif /* WOLFSSL_ALT_NAMES */
+
+#ifdef WOLFSSL_CERT_EXT
+    /* Carry any remaining CSR extensions (or warn that they were dropped). */
+    if (ret == WOLFCLU_SUCCESS) {
+        ret = wolfCLU_CopyX509ExtsToCert(x509, cert);
+    }
+#endif /* WOLFSSL_CERT_EXT */
+
+    return ret;
+}
+#endif /* WOLFSSL_CERT_GEN */

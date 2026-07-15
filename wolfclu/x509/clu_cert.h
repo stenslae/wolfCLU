@@ -32,3 +32,16 @@ int wolfCLU_certSetup(int argc, char** argv);
 /* print help info */
 void wolfCLU_certHelp(void);
 
+
+#ifdef WOLFSSL_CERT_GEN
+int wolfCLU_CopyX509NameToCert(WOLFSSL_X509_NAME* name, CertName* dst);
+int wolfCLU_SetCertNameFieldByNid(CertName* dst, int nid, const char* val, int valLen);
+int wolfCLU_Asn1TimeToCertDate(byte* out, int outSz, const WOLFSSL_ASN1_TIME* t);
+int wolfCLU_CopyX509SanToCert(WOLFSSL_X509* x509, Cert* cert);
+int wolfCLU_ExtHandledNid(int nid);
+int wolfCLU_CopyX509ExtsToCert(WOLFSSL_X509* x509, Cert* cert);
+int wolfCLU_X509FillCert(WOLFSSL_X509* x509, Cert* cert, int sigType,
+        void* subjWcKey, int subjWcKeyType,
+        void* caWcKey, int caWcKeyType, WOLFSSL_X509* caCert,
+        int policySanitized);
+#endif /* WOLFSSL_CERT_GEN */

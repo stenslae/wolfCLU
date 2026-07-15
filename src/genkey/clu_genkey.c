@@ -31,6 +31,69 @@
 #include <wolfclu/genkey/clu_genkey.h>
 #include <wolfclu/x509/clu_parse.h>
 #include <wolfclu/x509/clu_cert.h>    /* PER_FORM/DER_FORM */
+/* Opens path for writing with exact mode, replacing any existing file. */
+#ifdef _WIN32
+#include <windows.h>
+#include <sddl.h>
+#include <io.h>
+#include <fcntl.h>
+#pragma comment(lib, "advapi32.lib")
+
+static FILE* wolfCLU_OpenKeyFile(const char* path, int mode)
+{
+    SECURITY_ATTRIBUTES sa;
+    PSECURITY_DESCRIPTOR pSD = NULL;
+    HANDLE hFile;
+    int fd;
+    FILE* f = NULL;
+    const char* sddl = (mode == 0600) ? "D:P(A;;FA;;;OW)" : "D:P(A;;FA;;;OW)(A;;FR;;;WD)";
+
+    (void)_unlink(path);
+    if (ConvertStringSecurityDescriptorToSecurityDescriptorA(sddl, SDDL_REVISION_1, &pSD, NULL)) {
+        sa.nLength = sizeof(SECURITY_ATTRIBUTES);
+        sa.bInheritHandle = FALSE;
+        sa.lpSecurityDescriptor = pSD;
+
+        hFile = CreateFileA(path, GENERIC_WRITE, 0, &sa, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+        if (hFile != INVALID_HANDLE_VALUE) {
+            fd = _open_osfhandle((intptr_t)hFile, _O_WRONLY | _O_CREAT | _O_TRUNC);
+            if (fd != -1) {
+                f = _fdopen(fd, "wb");
+            }
+            if (f == NULL) {
+                if (fd != -1) _close(fd);
+                else CloseHandle(hFile);
+                (void)_unlink(path);
+            }
+        }
+        LocalFree(pSD);
+    }
+    return f;
+}
+#else
+#include <fcntl.h>
+#ifndef O_NOFOLLOW
+    #define O_NOFOLLOW 0
+#endif
+static FILE* wolfCLU_OpenKeyFile(const char* path, int mode)
+{
+    int   fd;
+    FILE* f;
+    /* Ignore the result (including ENOENT if the file doesn't exist yet);
+     * this just ensures the O_EXCL open below gets a fresh inode. */
+    (void)unlink(path);
+    fd = open(path, O_CREAT | O_EXCL | O_WRONLY | O_NOFOLLOW, mode);
+    if (fd < 0)
+        return NULL;
+    f = fdopen(fd, "wb");
+    if (f == NULL) {
+        close(fd);
+        (void)unlink(path); /* remove the stray empty file we just created */
+    }
+    return f;
+}
+#endif /* _WIN32 */
+
 
 #ifdef HAVE_ED25519
 /* return WOLFCLU_SUCCESS on success */
@@ -1160,10 +1223,10 @@ int wolfCLU_genKey_Dilithium(WC_RNG* rng, char* fName, int directive, int fmt,
                     }
                 }
 
-                /* open file and write Private key */
+                /* open file and write Private key with owner-only perms */
                 if (ret == WOLFCLU_SUCCESS) {
-                    file = XFOPEN(fOutNameBuf, "wb");
-                    if (file == XBADFILE) {
+                    file = wolfCLU_OpenKeyFile(fOutNameBuf, 0600);
+                    if (file == NULL) {
                         wolfCLU_LogError("unable to open file %s",
                                         fOutNameBuf);
                         ret = OUTPUT_FILE_ERROR;
@@ -1171,7 +1234,7 @@ int wolfCLU_genKey_Dilithium(WC_RNG* rng, char* fName, int directive, int fmt,
                 }
 
                 if (ret == WOLFCLU_SUCCESS) {
-                    if ((int)XFWRITE(outBuf, 1, outBufSz, file) <= 0) {
+                    if ((int)XFWRITE(outBuf, 1, outBufSz, file) != outBufSz) {
                         ret = OUTPUT_FILE_ERROR;
                     }
                 }
@@ -1182,12 +1245,12 @@ int wolfCLU_genKey_Dilithium(WC_RNG* rng, char* fName, int directive, int fmt,
 
                 XFCLOSE(file);
                 file = NULL;
-                wolfCLU_ForceZero(derBuf, keySz);
+                wc_ForceZero(derBuf, keySz);
                 XFREE(derBuf, HEAP_HINT, DYNAMIC_TYPE_TMP_BUFFER);
                 derBuf = NULL;
                 if (pemBuf != NULL) {
-                    wolfCLU_ForceZero(pemBuf, pemBufSz);
-                    XFREE(pemBuf, HEAP_HINT, DYNAMIC_TYPE_PRIVATE_KEY);
+                    wc_ForceZero(pemBuf, pemBufSz);
+                    XFREE(pemBuf, HEAP_HINT, DYNAMIC_TYPE_TMP_BUFFER);
                     pemBuf = NULL;
                 }
 
@@ -1238,7 +1301,7 @@ int wolfCLU_genKey_Dilithium(WC_RNG* rng, char* fName, int directive, int fmt,
                 }
 
                 if (ret == WOLFCLU_SUCCESS) {
-                    if ((int)XFWRITE(outBuf, 1, outBufSz, file) <= 0) {
+                    if ((int)XFWRITE(outBuf, 1, outBufSz, file) != outBufSz) {
                         ret = OUTPUT_FILE_ERROR;
                     }
                 }
@@ -1254,13 +1317,13 @@ int wolfCLU_genKey_Dilithium(WC_RNG* rng, char* fName, int directive, int fmt,
         XFCLOSE(file);
 
     if (derBuf != NULL) {
-        wolfCLU_ForceZero(derBuf, keySz);
+        wc_ForceZero(derBuf, keySz);
         XFREE(derBuf, HEAP_HINT, DYNAMIC_TYPE_TMP_BUFFER);
     }
 
     if (pemBuf != NULL) {
-        wolfCLU_ForceZero(pemBuf, pemBufSz);
-        XFREE(pemBuf, HEAP_HINT, DYNAMIC_TYPE_PRIVATE_KEY);
+        wc_ForceZero(pemBuf, pemBufSz);
+        XFREE(pemBuf, HEAP_HINT, DYNAMIC_TYPE_TMP_BUFFER);
     }
 
     if (fOutNameBuf != NULL) {
@@ -1408,10 +1471,10 @@ int wolfCLU_genKey_ML_DSA(WC_RNG* rng, char* fName, int directive, int fmt,
                     }
                 }
 
-                /* open file and write Private key */
+                /* open file and write Private key with owner-only perms */
                 if (ret == WOLFCLU_SUCCESS) {
-                    file = XFOPEN(fOutNameBuf, "wb");
-                    if (file == XBADFILE) {
+                    file = wolfCLU_OpenKeyFile(fOutNameBuf, 0600);
+                    if (file == NULL) {
                         wolfCLU_LogError("unable to open file %s",
                                         fOutNameBuf);
                         ret = OUTPUT_FILE_ERROR;
@@ -1419,7 +1482,7 @@ int wolfCLU_genKey_ML_DSA(WC_RNG* rng, char* fName, int directive, int fmt,
                 }
 
                 if (ret == WOLFCLU_SUCCESS) {
-                    if ((int)XFWRITE(outBuf, 1, outBufSz, file) <= 0) {
+                    if ((int)XFWRITE(outBuf, 1, outBufSz, file) != outBufSz) {
                         ret = OUTPUT_FILE_ERROR;
                     }
                 }
@@ -1430,12 +1493,12 @@ int wolfCLU_genKey_ML_DSA(WC_RNG* rng, char* fName, int directive, int fmt,
 
                 XFCLOSE(file);
                 file = NULL;
-                wolfCLU_ForceZero(derBuf, keySz);
+                wc_ForceZero(derBuf, keySz);
                 XFREE(derBuf, HEAP_HINT, DYNAMIC_TYPE_TMP_BUFFER);
                 derBuf = NULL;
                 if (pemBuf != NULL) {
-                    wolfCLU_ForceZero(pemBuf, pemBufSz);
-                    XFREE(pemBuf, HEAP_HINT, DYNAMIC_TYPE_PRIVATE_KEY);
+                    wc_ForceZero(pemBuf, pemBufSz);
+                    XFREE(pemBuf, HEAP_HINT, DYNAMIC_TYPE_TMP_BUFFER);
                     pemBuf = NULL;
                 }
 
@@ -1491,7 +1554,7 @@ int wolfCLU_genKey_ML_DSA(WC_RNG* rng, char* fName, int directive, int fmt,
                 }
 
                 if (ret == WOLFCLU_SUCCESS) {
-                    if ((int)XFWRITE(outBuf, 1, outBufSz, file) <= 0) {
+                    if ((int)XFWRITE(outBuf, 1, outBufSz, file) != outBufSz) {
                         ret = OUTPUT_FILE_ERROR;
                     }
                 }
@@ -1508,13 +1571,13 @@ int wolfCLU_genKey_ML_DSA(WC_RNG* rng, char* fName, int directive, int fmt,
     }
 
     if (derBuf != NULL) {
-        wolfCLU_ForceZero(derBuf, keySz);
+        wc_ForceZero(derBuf, keySz);
         XFREE(derBuf, HEAP_HINT, DYNAMIC_TYPE_TMP_BUFFER);
     }
 
     if (pemBuf != NULL) {
-        wolfCLU_ForceZero(pemBuf, pemBufSz);
-        XFREE(pemBuf, HEAP_HINT, DYNAMIC_TYPE_PRIVATE_KEY);
+        wc_ForceZero(pemBuf, pemBufSz);
+        XFREE(pemBuf, HEAP_HINT, DYNAMIC_TYPE_TMP_BUFFER);
     }
 
     if (fOutNameBuf != NULL) {
