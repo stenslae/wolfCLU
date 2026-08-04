@@ -19,6 +19,8 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1335, USA
  */
 
+#include <wolfssl/ssl.h>
+#include <wolfssl/wolfcrypt/asn_public.h>
 #include <wolfssl/wolfcrypt/random.h>
 #include <wolfssl/wolfcrypt/error-crypt.h>
 
@@ -32,3 +34,46 @@ int wolfCLU_certSetup(int argc, char** argv);
 /* print help info */
 void wolfCLU_certHelp(void);
 
+
+#ifdef WOLFSSL_CERT_GEN
+int wolfCLU_CopyX509NameToCert(WOLFSSL_X509_NAME* name, CertName* dst);
+int wolfCLU_SetCertNameFieldByNid(CertName* dst, int nid, const char* val,
+        int valLen);
+int wolfCLU_Asn1TimeToCertDate(byte* out, int outSz,
+        const WOLFSSL_ASN1_TIME* t);
+
+#if defined(WOLFSSL_ALT_NAMES)
+int wolfCLU_CopyX509SanToCert(WOLFSSL_X509* x509, Cert* cert);
+#endif /* WOLFSSL_ALT_NAMES */
+
+#ifdef WOLFSSL_CERT_EXT
+int wolfCLU_ExtHandledNid(int nid);
+int wolfCLU_CopyX509ExtsToCert(WOLFSSL_X509* x509, Cert* cert,
+        int* extsDropped);
+int wolfCLU_FreeCertCustomExts(Cert* cert);
+
+/* Extracts raw Extensions DER for testing. */
+int wolfCLU_UnwrapX509Extensions(const byte** extensions,
+        int* extensionsSz);
+#endif /* WOLFSSL_CERT_EXT */
+
+int wolfCLU_X509FillCert(WOLFSSL_X509* x509, Cert* cert, int sigType,
+        void* subjWcKey, int subjWcKeyType,
+        void* caWcKey, int caWcKeyType, WOLFSSL_X509* caCert,
+        int policySanitized, int* extsDropped);
+#define WOLFCLU_CERT_DAYS_DEFAULT 365
+
+#ifdef WOLFSSL_CERT_EXT
+int wolfCLU_BuildAndSignNative(void* key, int keyType, int sigType, int bufSz,
+        WOLFSSL_X509* x509, int days, int isCSR, int outForm,
+        WOLFSSL_BIO* bioOut, int noOut);
+
+/* Shared build+sign core for wolfCLU_BuildAndSignNative()/CertSignNative().
+ * days < 0 leaves cert->daysValid untouched. */
+int wolfCLU_MakeAndSignCertDer(WOLFSSL_X509* x509, int isCSR, int sigType,
+        int bufSz, void* subjKey, int subjKeyType, void* caKey, int caKeyType,
+        WOLFSSL_X509* caCert, int policySanitized, int days,
+        byte** outDer, int* outDerSz);
+#endif /* WOLFSSL_CERT_EXT */
+
+#endif /* WOLFSSL_CERT_GEN */
