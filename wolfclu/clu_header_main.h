@@ -956,6 +956,31 @@ int wolfCLU_ReadCertDer(const char* filename, byte** outDer);
  */
 int wolfCLU_GetStdinPassword(byte* password, word32* passwordSz);
 
+/**
+ * @brief PEM-encode a DER buffer into a newly allocated buffer
+ * @param der    DER input
+ * @param derSz  size of der
+ * @param type   wolfSSL PEM type, e.g. CERT_TYPE
+ * @param outBuf receives the PEM buffer; caller must XFREE it
+ * @param outBufSz receives the PEM size
+ * @return WOLFCLU_SUCCESS on success
+ */
+int wolfCLU_DerToPemBuf(const byte* der, int derSz, int type, byte** outBuf,
+        int* outBufSz);
+
+/**
+ * @brief Write a DER buffer to a BIO, PEM-encoding it first when outForm is
+ *        PEM_FORM
+ * @param bioOut   destination BIO
+ * @param outForm  PEM_FORM or DER_FORM
+ * @param derBuf   DER input
+ * @param derBufSz size of derBuf
+ * @param type     wolfSSL PEM type used when outForm is PEM_FORM
+ * @return WOLFCLU_SUCCESS on success
+ */
+int wolfCLU_WriteCertBio(WOLFSSL_BIO* bioOut, int outForm, const byte* derBuf,
+        int derBufSz, int type);
+
 #ifdef __cplusplus
 }
 #endif
