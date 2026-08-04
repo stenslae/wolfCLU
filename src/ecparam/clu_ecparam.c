@@ -221,7 +221,9 @@ int wolfCLU_ecparam(int argc, char** argv)
         WOLFCLU_LOG(WOLFCLU_E0, "No filesystem support. Unable to open input file");
         ret = WOLFCLU_FATAL_ERROR;
 #else
-        bioOut = wolfSSL_BIO_new_file(out, "wb");
+        /* -genkey sends an EC private key here, so it gets the same
+         * owner-only treatment as dhparam/dsaparam -genkey. */
+        bioOut = wolfCLU_OpenOutOrKeyFileBio(out, genKey);
         if (bioOut == NULL) {
             ret = WOLFCLU_FATAL_ERROR;
         }

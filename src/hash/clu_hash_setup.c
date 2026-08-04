@@ -294,9 +294,10 @@ int wolfCLU_hashSetup(int argc, char** argv)
     }
 
     if (ret == WOLFCLU_SUCCESS && outFile != NULL) {
-        bioOut = wolfSSL_BIO_new_file(outFile, "wb");
+        /* A digest is not secret, so this keeps fopen() semantics: symlinks
+         * and /dev/stdout stay valid -out targets. */
+        bioOut = wolfCLU_OpenOutFileBio(outFile);
         if (bioOut == NULL) {
-            wolfCLU_LogError("unable to open output file %s", outFile);
             ret = USER_INPUT_ERROR;
         }
     }

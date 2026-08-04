@@ -426,6 +426,7 @@ int wolfCLU_pKeySetup(int argc, char** argv)
     WOLFSSL_EVP_PKEY *pkey = NULL;
     WOLFSSL_BIO *bioIn  = NULL;
     WOLFSSL_BIO *bioOut = NULL;
+    char *outPath = NULL;
 
     optind = 0; /* start at indent 0 */
     while ((option = wolfCLU_GetOpt(argc, argv, "", pkey_options,
@@ -455,12 +456,10 @@ int wolfCLU_pKeySetup(int argc, char** argv)
                 break;
 
             case WOLFCLU_OUTFILE:
-                bioOut = wolfSSL_BIO_new_file(optarg, "wb");
-                if (bioOut == NULL) {
-                    wolfCLU_LogError("Unable to open output file %s",
-                            optarg);
-                    ret = WOLFCLU_FATAL_ERROR;
-                }
+                /* Deferred: whether this is a private key (owner-only) or a
+                 * public key (default perms) depends on -pubout, which may
+                 * appear later on the command line. */
+                outPath = optarg;
                 break;
 
             case WOLFCLU_INFORM:
@@ -487,6 +486,14 @@ int wolfCLU_pKeySetup(int argc, char** argv)
         }
     }
 
+
+    /* open -out now that -pubout has been fully parsed. */
+    if (ret == WOLFCLU_SUCCESS && outPath != NULL) {
+        bioOut = wolfCLU_OpenOutOrKeyFileBio(outPath, !pubOut);
+        if (bioOut == NULL) {
+            ret = WOLFCLU_FATAL_ERROR;
+        }
+    }
 
     if (ret == WOLFCLU_SUCCESS && bioIn != NULL) {
         if (inForm == PEM_FORM) {

@@ -36,57 +36,6 @@
 
 static const byte keyDhOid[] = {42, 134, 72, 134, 247, 13, 1, 3, 1};
 
-static word32 BytePrecisionCopy(word32 value)
-{
-    word32 i;
-    for (i = (word32)sizeof(value) - 1; i; --i)
-        if (value >> ((i - 1) * WOLFSSL_BIT_SIZE))
-            break;
-
-    return i;
-}
-
-static word32 SetLengthCopy(word32 length, byte* output)
-{
-    /* Start encoding at start of buffer. */
-    word32 i = 0;
-
-    if (length < ASN_LONG_LENGTH) {
-        /* Only one byte needed to encode. */
-        if (output) {
-            /* Write out length value. */
-            output[i] = (byte)length;
-        }
-        /* Skip over length. */
-        i++;
-    }
-    else {
-        /* Calculate the number of bytes required to encode value. */
-        byte j = (byte)BytePrecisionCopy(length);
-
-        if (output) {
-            /* Encode count byte. */
-            output[i] = j | ASN_LONG_LENGTH;
-        }
-        /* Skip over count byte. */
-        i++;
-
-        /* Encode value as a big-endian byte array. */
-        for (; j > 0; --j) {
-            if (output) {
-                /* Encode next most-significant byte. */
-                output[i] = (byte)(length >> ((j - 1) * WOLFSSL_BIT_SIZE));
-            }
-            /* Skip over byte. */
-            i++;
-        }
-    }
-
-    /* Return number of bytes in encoded length. */
-    return i;
-}
-
-
 static int SetMyVersionCopy(word32 version, byte* output, int header)
 {
     int i = 0;
@@ -117,7 +66,7 @@ static int SetObjectIdCopy(int len, byte* output)
     /* Skip tag. */
     idx += ASN_TAG_SZ;
     /* Encode length - passing NULL for output will not encode. */
-    idx += SetLengthCopy(len, output ? output + idx : NULL);
+    idx += wolfCLU_DerSetLength(len, output ? output + idx : NULL);
 
     /* Return index after header. */
     return idx;
@@ -130,7 +79,8 @@ static word32 SetSequenceCopy(word32 len, byte* output)
         output[0] = ASN_SEQUENCE | ASN_CONSTRUCTED;
     }
 
-    return SetLengthCopy(len, output ? output + ASN_TAG_SZ : NULL) + ASN_TAG_SZ;
+    return wolfCLU_DerSetLength(len, (output != NULL) ? output + ASN_TAG_SZ :
+            NULL) + ASN_TAG_SZ;
 }
 
 
@@ -140,7 +90,8 @@ static word32 SetOctetStringCopy(word32 len, byte* output)
         output[0] = ASN_OCTET_STRING;
     }
 
-    return SetLengthCopy(len, output ? output + ASN_TAG_SZ : NULL) + ASN_TAG_SZ;
+    return wolfCLU_DerSetLength(len, (output != NULL) ? output + ASN_TAG_SZ :
+            NULL) + ASN_TAG_SZ;
 }
 
 
@@ -161,7 +112,7 @@ static int SetASNIntCopy(int len, byte firstByte, byte* output)
         len++;
     }
     /* Encode length - passing NULL for output will not encode. */
-    idx += SetLengthCopy(len, output ? output + idx : NULL);
+    idx += wolfCLU_DerSetLength(len, output ? output + idx : NULL);
     /* Put out pre-pended 0 as well. */
     if (firstByte & 0x80) {
         if (output) {
@@ -265,7 +216,8 @@ int wc_DhPrivKeyToDer(DhKey* key, byte* prv, word32 prvSz, byte* output,
     /* determine size */
     /* octect string: priv */
     privSz = SetASNIntMPCopy(&mpPriv, -1, NULL);
-    idx = 1 + SetLengthCopy(privSz, NULL) + privSz; /* +1 for ASN_OCTET_STRING */
+    /* +1 for ASN_OCTET_STRING */
+    idx = 1 + wolfCLU_DerSetLength(privSz, NULL) + privSz;
     keySz = idx;
 
     /* DH Parameters sequence with P and G */
@@ -490,7 +442,12 @@ int wolfCLU_DhParamSetup(int argc, char** argv)
         word32 idx  = 0;
 
         inSz = wolfSSL_BIO_get_len(bioIn);
-        if (inSz > 0) {
+        if (inSz <= 0) {
+            wolfCLU_LogError("Failed to get length of input DH params or "
+                    "empty file");
+            ret = WOLFCLU_FATAL_ERROR;
+        }
+        else {
             in = (byte*)XMALLOC(inSz, NULL, DYNAMIC_TYPE_TMP_BUFFER);
             if (in == NULL) {
                 ret = WOLFCLU_FATAL_ERROR;
@@ -536,10 +493,10 @@ int wolfCLU_DhParamSetup(int argc, char** argv)
             WOLFCLU_LOG(WOLFCLU_E0, "No filesystem support. Unable to open output file");
             ret = WOLFCLU_FATAL_ERROR;
 #else
-            bioOut = wolfSSL_BIO_new_file(out, "wb");
+            /* lock down perms only when -genkey also writes a private
+             * key here */
+            bioOut = wolfCLU_OpenOutOrKeyFileBio(out, genKey);
             if (bioOut == NULL) {
-                wolfCLU_LogError("Unable to open output file %s",
-                        optarg);
                 ret = WOLFCLU_FATAL_ERROR;
             }
 #endif
@@ -730,7 +687,8 @@ int wolfCLU_DhParamSetup(int argc, char** argv)
         byte* outBuf    = NULL;
         byte* pem       = NULL;
         word32 outBufSz = 0;
-        word32 pemSz    = 0;
+        word32 pemSz    = 0;    /* size of the pem allocation */
+        int    pemRet   = 0;    /* signed wc_DerToPem return */
 
         if (wc_DhGenerateKeyPair(&dh, &rng, priv, &privSz, pub, &pubSz) != 0) {
             wolfCLU_LogError("Error making DH key");
@@ -774,8 +732,10 @@ int wolfCLU_DhParamSetup(int argc, char** argv)
         }
 
         if (ret == WOLFCLU_SUCCESS) {
-            pemSz = wc_DerToPem(outBuf, outBufSz, NULL, 0, DH_PRIVATEKEY_TYPE);
-            if (pemSz > 0) {
+            pemRet = wc_DerToPem(outBuf, outBufSz, NULL, 0,
+                    DH_PRIVATEKEY_TYPE);
+            if (pemRet > 0) {
+                pemSz = (word32)pemRet;
                 pem = (byte*)XMALLOC(pemSz, NULL, DYNAMIC_TYPE_TMP_BUFFER);
                 if (pem == NULL) {
                     ret = WOLFCLU_FATAL_ERROR;
@@ -787,22 +747,29 @@ int wolfCLU_DhParamSetup(int argc, char** argv)
         }
 
         if (ret == WOLFCLU_SUCCESS) {
-            pemSz = wc_DerToPem(outBuf, outBufSz, pem, pemSz,
+            pemRet = wc_DerToPem(outBuf, outBufSz, pem, pemSz,
                     DH_PRIVATEKEY_TYPE);
-            if (pemSz <= 0) {
+            if (pemRet <= 0) {
                 ret = WOLFCLU_FATAL_ERROR;
             }
         }
 
         if (ret == WOLFCLU_SUCCESS &&
-                wolfSSL_BIO_write(bioOut, pem, pemSz) <= 0) {
+                wolfSSL_BIO_write(bioOut, pem, pemRet) <= 0) {
             ret = WOLFCLU_FATAL_ERROR;
         }
 
-        if (pem != NULL)
+        /* priv, and the DER/PEM encodings built from it, all hold the DH
+         * private key. */
+        wolfCLU_ForceZero(priv, sizeof(priv));
+        if (pem != NULL) {
+            wolfCLU_ForceZero(pem, pemSz);
             XFREE(pem, NULL, DYNAMIC_TYPE_TMP_BUFFER);
-        if (outBuf != NULL)
+        }
+        if (outBuf != NULL) {
+            wolfCLU_ForceZero(outBuf, outBufSz);
             XFREE(outBuf, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+        }
     }
 
     wolfSSL_BIO_free(bioIn);

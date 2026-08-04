@@ -240,7 +240,9 @@ int wolfCLU_sign_data_rsa(byte* data, char* out, word32 dataSz, char* privKey,
 
     /* open, read, and store RSA key */
     if (ret == 0) {
-        privKeyFile = XFOPEN(privKey, "rb");
+        /* Private key read: refuse to follow a symlink, but don't rewrite
+         * the mode of a key that may be provisioned by another account. */
+        privKeyFile = wolfCLU_OpenExistingSecureFile(privKey, "rb", 0);
         if (privKeyFile == NULL) {
             wolfCLU_LogError("unable to open file %s", privKey);
             ret = BAD_FUNC_ARG;
@@ -323,7 +325,9 @@ int wolfCLU_sign_data_rsa(byte* data, char* out, word32 dataSz, char* privKey,
         ret = wc_RsaSSL_Sign(data, dataSz, outBuf, (word32)outBufSz, &key, &rng);
         if (ret >= 0) {
             XFILE s;
-            s = XFOPEN(out, "wb");
+            /* Signature output is not secret; default permissions match
+             * fopen()'s behavior. */
+            s = wolfCLU_OpenOutFile(out);
             if (s == NULL) {
                 wolfCLU_LogError("Failed to open output file");
                 ret = BAD_FUNC_ARG;
@@ -400,7 +404,9 @@ int wolfCLU_sign_data_ecc(byte* data, char* out, word32 fSz, char* privKey,
 
     /* open, read, and store ecc key */
     if (ret == 0) {
-        privKeyFile = XFOPEN(privKey, "rb");
+        /* Private key read: refuse to follow a symlink, but don't rewrite
+         * the mode of a key that may be provisioned by another account. */
+        privKeyFile = wolfCLU_OpenExistingSecureFile(privKey, "rb", 0);
         if (privKeyFile == NULL) {
             wolfCLU_LogError("unable to open file %s", privKey);
             ret = BAD_FUNC_ARG;
@@ -507,7 +513,9 @@ int wolfCLU_sign_data_ecc(byte* data, char* out, word32 fSz, char* privKey,
         }
         if (ret >= 0) {
             XFILE s;
-            s = XFOPEN(out, "wb");
+            /* Signature output is not secret; default permissions match
+             * fopen()'s behavior. */
+            s = wolfCLU_OpenOutFile(out);
             if (s == NULL) {
                 wolfCLU_LogError("Failed to open file");
                 ret = BAD_FUNC_ARG;
@@ -583,7 +591,9 @@ int wolfCLU_sign_data_ed25519 (byte* data, char* out, word32 fSz, char* privKey,
 
     /* open, read, and store ED25519 key */
     if (ret == 0) {
-        privKeyFile = XFOPEN(privKey, "rb");
+        /* Private key read: refuse to follow a symlink, but don't rewrite
+         * the mode of a key that may be provisioned by another account. */
+        privKeyFile = wolfCLU_OpenExistingSecureFile(privKey, "rb", 0);
         if (privKeyFile == NULL) {
             wolfCLU_LogError("unable to open file %s", privKey);
             ret = BAD_FUNC_ARG;
@@ -679,7 +689,9 @@ int wolfCLU_sign_data_ed25519 (byte* data, char* out, word32 fSz, char* privKey,
         ret = wc_ed25519_sign_msg(data, fSz, outBuf, &outLen, &key);
         if (ret >= 0) {
             XFILE s;
-            s = XFOPEN(out, "wb");
+            /* Signature output is not secret; default permissions match
+             * fopen()'s behavior. */
+            s = wolfCLU_OpenOutFile(out);
             if (s == NULL) {
                 wolfCLU_LogError("Failed to open file");
                 ret = BAD_FUNC_ARG;
@@ -771,7 +783,9 @@ int wolfCLU_sign_data_dilithium (byte* data, char* out, word32 dataSz, char* pri
 
     /* open and read private key */
     if (ret == 0) {
-        privKeyFile = XFOPEN(privKey, "rb");
+        /* Private key read: refuse to follow a symlink, but don't rewrite
+         * the mode of a key that may be provisioned by another account. */
+        privKeyFile = wolfCLU_OpenExistingSecureFile(privKey, "rb", 0);
         if (privKeyFile == NULL) {
             wolfCLU_LogError("Failed to open Private key FILE.");
             ret = BAD_FUNC_ARG;
@@ -858,7 +872,9 @@ int wolfCLU_sign_data_dilithium (byte* data, char* out, word32 dataSz, char* pri
 
     if (ret == 0) {
         XFILE outFile;
-        outFile = XFOPEN(out, "wb");
+        /* Signature output is not secret; default permissions match
+         * fopen()'s behavior. */
+        outFile = wolfCLU_OpenOutFile(out);
 
         if (outFile == NULL) {
             wolfCLU_LogError("Failed to open output file %s", out);
@@ -1037,7 +1053,9 @@ int wolfCLU_sign_data_xmss(byte* data, char* out, int fSz, char* privKey)
 
     /* output signature */
     if (ret == 0) {
-        outFile = XFOPEN(out, "wb");
+        /* Signature output is not secret; default permissions match
+         * fopen()'s behavior. */
+        outFile = wolfCLU_OpenOutFile(out);
         if (outFile == NULL) {
             ret = OUTPUT_FILE_ERROR;
             wolfCLU_LogError("Failed to open file %s.\nRET: %d", out, ret);
@@ -1232,7 +1250,9 @@ int wolfCLU_sign_data_xmssmt(byte* data, char* out, int fSz, char* privKey)
 
     /* output signature */
     if (ret == 0) {
-        outFile = XFOPEN(out, "wb");
+        /* Signature output is not secret; default permissions match
+         * fopen()'s behavior. */
+        outFile = wolfCLU_OpenOutFile(out);
         if (outFile == NULL) {
             ret = OUTPUT_FILE_ERROR;
             wolfCLU_LogError("Failed to open file %s.\nRET: %d", out, ret);

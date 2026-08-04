@@ -998,9 +998,9 @@ int wolfCLU_requestSetup(int argc, char** argv)
     }
 
     if (ret == WOLFCLU_SUCCESS && bioOut == NULL && out != NULL) {
-        bioOut = wolfSSL_BIO_new_file(out, "wb");
+        /* CSR/certificate output, not secret. */
+        bioOut = wolfCLU_OpenOutFileBio(out);
         if (bioOut == NULL) {
-            wolfCLU_LogError("Unable to open output file %s", out);
             ret = WOLFCLU_FATAL_ERROR;
         }
     }
@@ -1110,7 +1110,8 @@ int wolfCLU_requestSetup(int argc, char** argv)
         WOLFSSL_BIO* keyOutBio;
 
         if (keyOut != NULL) {
-            keyOutBio = wolfSSL_BIO_new_file(keyOut, "wb");
+            /* The freshly generated private key, owner-only. */
+            keyOutBio = wolfCLU_OpenKeyFileBio(keyOut);
         }
         else {
             keyOutBio = wolfSSL_BIO_new(wolfSSL_BIO_s_file());

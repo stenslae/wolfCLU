@@ -80,6 +80,7 @@ int wolfCLU_RSA(int argc, char** argv)
     WOLFSSL_BIO *bioIn  = NULL;
     WOLFSSL_BIO *bioOut = NULL;
     WOLFSSL_RSA *rsa = NULL;
+    char *outPath = NULL;
 
     opterr = 0; /* do not display unrecognized options */
     optind = 0; /* start at indent 0 */
@@ -101,12 +102,10 @@ int wolfCLU_RSA(int argc, char** argv)
                 break;
 
             case WOLFCLU_OUTFILE:
-                bioOut = wolfSSL_BIO_new_file(optarg, "wb");
-                if (bioOut == NULL) {
-                    wolfCLU_LogError("unable to open out file %s",
-                            optarg);
-                    ret = WOLFCLU_FATAL_ERROR;
-                }
+                /* Deferred: whether this is a private key (owner-only) or a
+                 * public key/modulus (default perms) depends on -pubout,
+                 * which may appear later on the command line. */
+                outPath = optarg;
                 break;
 
             case WOLFCLU_INFORM:
@@ -152,6 +151,15 @@ int wolfCLU_RSA(int argc, char** argv)
             default:
                 /* do nothing. */
                 (void)ret;
+        }
+    }
+
+    /* open -out now that -pubout has been fully parsed: the output is a
+     * private key unless -pubout (or -pubin, which implies it) was given. */
+    if (ret == WOLFCLU_SUCCESS && outPath != NULL) {
+        bioOut = wolfCLU_OpenOutOrKeyFileBio(outPath, !pubOut);
+        if (bioOut == NULL) {
+            ret = WOLFCLU_FATAL_ERROR;
         }
     }
 

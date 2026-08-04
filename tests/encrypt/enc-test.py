@@ -129,6 +129,25 @@ class EncDecryptTest(unittest.TestCase):
         self.assertTrue(filecmp.cmp(orig, dec, shallow=False),
                         "decrypted file does not match original")
 
+    def test_in_out_same_file_refused(self):
+        """-in and -out on one file would truncate the input mid-read."""
+        src = "enc_inplace.txt"
+        self._cleanup(src)
+
+        with open(src, "w") as f:
+            f.write("plaintext that must survive\n")
+
+        r = run_enc("enc", "-aes-128-cbc", "-in", src, "-out", src,
+                     password="test")
+        self.assertNotEqual(r.returncode, 0, "in-place enc should fail")
+        with open(src) as f:
+            self.assertEqual(f.read(), "plaintext that must survive\n",
+                             "input file was modified")
+
+        r = run_enc("enc", "-d", "-aes-128-cbc", "-in", src, "-out", src,
+                     password="test")
+        self.assertNotEqual(r.returncode, 0, "in-place dec should fail")
+
     def test_small_file(self):
         small = "enc_small.txt"
         enc = "enc_small.txt.enc"

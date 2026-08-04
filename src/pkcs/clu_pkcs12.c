@@ -74,6 +74,7 @@ int wolfCLU_PKCS12(int argc, char** argv)
     WOLF_STACK_OF(WOLFSSL_X509) *extra = NULL;
     WOLFSSL_BIO *bioIn  = NULL;
     WOLFSSL_BIO *bioOut = NULL;
+    char *outPath = NULL;
 
     opterr = 0; /* do not display unrecognized options */
     optind = 0; /* start at indent 0 */
@@ -115,12 +116,10 @@ int wolfCLU_PKCS12(int argc, char** argv)
                 break;
 
             case WOLFCLU_OUTFILE:
-                bioOut = wolfSSL_BIO_new_file(optarg, "wb");
-                if (bioOut == NULL) {
-                    wolfCLU_LogError("Unable to open output file %s",
-                            optarg);
-                    ret = WOLFCLU_FATAL_ERROR;
-                }
+                /* Deferred: -out can carry an unencrypted or DES-encrypted
+                 * private key alongside the cert unless -nokeys is given,
+                 * which may appear later on the command line. */
+                outPath = optarg;
                 break;
 
             case WOLFCLU_HELP:
@@ -137,6 +136,15 @@ int wolfCLU_PKCS12(int argc, char** argv)
             default:
                 /* do nothing. */
                 (void)ret;
+        }
+    }
+
+    /* open -out now that -nokeys has been fully parsed: printKeys defaults
+     * on, so -out holds private key material unless -nokeys turned it off. */
+    if (ret == WOLFCLU_SUCCESS && outPath != NULL) {
+        bioOut = wolfCLU_OpenOutOrKeyFileBio(outPath, printKeys);
+        if (bioOut == NULL) {
+            ret = WOLFCLU_FATAL_ERROR;
         }
     }
 

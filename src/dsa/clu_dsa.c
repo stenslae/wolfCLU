@@ -197,10 +197,10 @@ int wolfCLU_DsaParamSetup(int argc, char** argv)
             WOLFCLU_LOG(WOLFCLU_E0, "No filesystem support. Unable to open input file");
             ret = WOLFCLU_FATAL_ERROR;
 #else
-            bioOut = wolfSSL_BIO_new_file(out, "wb");
+            /* lock down perms only when -genkey also writes a private
+             * key here */
+            bioOut = wolfCLU_OpenOutOrKeyFileBio(out, genKey);
             if (bioOut == NULL) {
-                wolfCLU_LogError("Unable to open output file %s",
-                        optarg);
                 ret = WOLFCLU_FATAL_ERROR;
             }
 #endif
@@ -288,7 +288,8 @@ int wolfCLU_DsaParamSetup(int argc, char** argv)
         byte* outBuf = NULL;
         byte* pem    = NULL;
         word32 outBufSz = 0;
-        word32 pemSz    = 0;
+        word32 pemSz    = 0;    /* size of the pem allocation */
+        int    pemRet   = 0;    /* signed wc_DerToPem return */
 
         if (wc_MakeDsaKey(&rng, &dsa) != 0) {
             wolfCLU_LogError("Error making DSA key");
@@ -325,8 +326,10 @@ int wolfCLU_DsaParamSetup(int argc, char** argv)
         }
 
         if (ret == WOLFCLU_SUCCESS) {
-            pemSz = wc_DerToPem(outBuf, outBufSz, NULL, 0, DSA_PRIVATEKEY_TYPE);
-            if (pemSz > 0) {
+            pemRet = wc_DerToPem(outBuf, outBufSz, NULL, 0,
+                    DSA_PRIVATEKEY_TYPE);
+            if (pemRet > 0) {
+                pemSz = (word32)pemRet;
                 pem = (byte*)XMALLOC(pemSz, NULL, DYNAMIC_TYPE_TMP_BUFFER);
                 if (pem == NULL) {
                     ret = WOLFCLU_FATAL_ERROR;
@@ -338,22 +341,27 @@ int wolfCLU_DsaParamSetup(int argc, char** argv)
         }
 
         if (ret == WOLFCLU_SUCCESS) {
-            pemSz = wc_DerToPem(outBuf, outBufSz, pem, pemSz,
+            pemRet = wc_DerToPem(outBuf, outBufSz, pem, pemSz,
                     DSA_PRIVATEKEY_TYPE);
-            if (pemSz <= 0) {
+            if (pemRet <= 0) {
                 ret = WOLFCLU_FATAL_ERROR;
             }
         }
 
         if (ret == WOLFCLU_SUCCESS &&
-                wolfSSL_BIO_write(bioOut, pem, pemSz) <= 0) {
+                wolfSSL_BIO_write(bioOut, pem, pemRet) <= 0) {
             ret = WOLFCLU_FATAL_ERROR;
         }
 
-        if (pem != NULL)
+        /* Both encodings hold the DSA private key. */
+        if (pem != NULL) {
+            wolfCLU_ForceZero(pem, pemSz);
             XFREE(pem, NULL, DYNAMIC_TYPE_TMP_BUFFER);
-        if (outBuf != NULL)
+        }
+        if (outBuf != NULL) {
+            wolfCLU_ForceZero(outBuf, outBufSz);
             XFREE(outBuf, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+        }
     }
 
     wolfSSL_BIO_free(bioIn);

@@ -60,6 +60,12 @@ int wolfCLU_decrypt(int alg, char* mode, byte* pwdKey, byte* key, int size,
 
     XMEMSET(&rng, 0, sizeof(rng));
 
+    /* Opening the output truncates it, destroying the ciphertext mid-read. */
+    if (wolfCLU_PathsRefEqual(in, out)) {
+        wolfCLU_LogError("-in and -out name the same file %s", in);
+        return DECRYPT_ERROR;
+    }
+
     /* opens input file */
     inFile = XFOPEN(in, "rb");
     if (inFile == NULL) {
@@ -68,8 +74,7 @@ int wolfCLU_decrypt(int alg, char* mode, byte* pwdKey, byte* key, int size,
     }
     /* opens output file */
 
-    if ((outFile = XFOPEN(out, "wb")) == NULL) {
-        wolfCLU_LogError("Error creating output file.");
+    if ((outFile = wolfCLU_OpenOutFile(out)) == NULL) {
         XFCLOSE(inFile);
         return DECRYPT_ERROR;
     }

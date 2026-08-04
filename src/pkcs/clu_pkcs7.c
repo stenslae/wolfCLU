@@ -97,10 +97,10 @@ int wolfCLU_PKCS7(int argc, char** argv)
                 break;
 
             case WOLFCLU_OUTFILE:
-                bioOut = wolfSSL_BIO_new_file(optarg, "wb");
+                /* This tool only ever prints certificates, never key
+                 * material, so default (non-owner-only) permissions apply. */
+                bioOut = wolfCLU_OpenOutFileBio(optarg);
                 if (bioOut == NULL) {
-                    wolfCLU_LogError("Unable to open output file %s",
-                            optarg);
                     ret = WOLFCLU_FATAL_ERROR;
                 }
                 break;

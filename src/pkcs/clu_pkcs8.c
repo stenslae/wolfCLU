@@ -109,10 +109,10 @@ int wolfCLU_PKCS8(int argc, char** argv)
                 break;
 
             case WOLFCLU_OUTFILE:
-                bioOut = wolfSSL_BIO_new_file(optarg, "wb");
+                /* Always a private key (PKCS#1 or PKCS#8, encrypted or
+                 * not), so lock it down owner-only. */
+                bioOut = wolfCLU_OpenKeyFileBio(optarg);
                 if (bioOut == NULL) {
-                    wolfCLU_LogError("Unable to open output file %s",
-                            optarg);
                     ret = WOLFCLU_FATAL_ERROR;
                 }
                 break;

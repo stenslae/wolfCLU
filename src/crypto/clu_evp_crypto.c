@@ -77,6 +77,12 @@ int wolfCLU_evp_crypto(const WOLFSSL_EVP_CIPHER* cphr, char* mode, byte* pwdKey,
         return BAD_FUNC_ARG;
     }
 
+    /* Opening the output truncates it, destroying the input mid-read. */
+    if (wolfCLU_PathsRefEqual(fileIn, fileOut)) {
+        wolfCLU_LogError("-in and -out name the same file %s", fileIn);
+        return WOLFCLU_FATAL_ERROR;
+    }
+
     /* Start up the random number generator */
     if (wc_InitRng(&rng) != 0) {
         wolfCLU_LogError("Random Number Generator failed to start.");
