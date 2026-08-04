@@ -446,7 +446,9 @@ int wolfCLU_DhParamSetup(int argc, char** argv)
      * option found in the arguments passed in */
 
     if (ret == WOLFCLU_SUCCESS) {
-        int i = 2; // start at 2 because wolfssl & dhparam will be in first and second
+        /* start at 2 because wolfssl & dhparam will be in the first and
+         * second positions */
+        int i = 2;
         int found = 0;
         while (i + 1 <= argc && !found) {
             /* confirm arg is a non '-' option that does not correspond

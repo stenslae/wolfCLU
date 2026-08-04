@@ -135,6 +135,7 @@ class TestReqNew(unittest.TestCase):
         for f in files:
             self.addCleanup(lambda p=f: _cleanup(p))
 
+
     def test_req_new_with_subj(self):
         """req -new -subj creates cert with correct subject."""
         tmp = _tmp("test_req_subj.cert")

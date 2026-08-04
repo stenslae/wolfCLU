@@ -118,9 +118,9 @@ extern "C" {
 #define MEGABYTE (1024*1024)
 #define KILOBYTE 1024
 #ifdef FREERTOS
-	#define BYTE_UNIT KILOBYTE
+    #define BYTE_UNIT KILOBYTE
 #else
-	#define BYTE_UNIT MEGABYTE
+    #define BYTE_UNIT MEGABYTE
 #endif
 #define MAX_TERM_WIDTH 80
 #define MAX_THREADS 64
@@ -442,8 +442,8 @@ int wolfCLU_streamHashBio(WOLFSSL_BIO* bioIn, enum wc_HashType hashType,
  * @param alg        hash type to use (converted to EVP type)
  * @param in         input BIO to read data from in MAX_IO_CHUNK_SZ chunks
  * @param out        buffer to output digest to
- * @param outSz      On entry, capacity of out; on success, updated to number of
-  *                  bytes written to out.
+ * @param outSz      On entry, capacity of out; on success, updated to number
+ *                   of bytes written to out.
  */
 int wolfCLU_hmacHash(WOLFSSL_HMAC_CTX *ctx, void* key, word32 keyLen,
         enum wc_HashType alg, WOLFSSL_BIO* in, byte* out, word32* outSz);
@@ -614,6 +614,111 @@ int wolfCLU_PKCS12(int argc, char** argv);
 void wolfCLU_ForceZero(void* mem, unsigned int len);
 
 /**
+ * @brief DER definite-length encoder. Returns the encoded length in bytes.
+ *        With output NULL nothing is written and only that size is returned,
+ *        which is how callers size a buffer before encoding into it.
+ */
+word32 wolfCLU_DerSetLength(word32 length, byte* output);
+
+/*
+ * These helpers deliberately work in terms of FILE* and POSIX/Win32 file
+ * descriptors rather than wolfSSL's XFILE/XFOPEN porting macros: the
+ * permission and symlink guarantees they exist to provide have no equivalent
+ * in that abstraction. They are consequently declared and compiled only when
+ * a stdio filesystem is available, i.e. not when WOLFCLU_NO_FILESYSTEM is
+ * set. The results are assignable to XFILE only where XFILE is FILE*.
+ */
+#ifndef WOLFCLU_NO_FILESYSTEM
+
+/**
+ * @brief Read the whole of path into a newly allocated buffer.
+ *
+ * Returns WOLFCLU_SUCCESS, BAD_FUNC_ARG for a NULL argument or maxSz <= 0,
+ * MEMORY_E if the buffer cannot be allocated, or WOLFCLU_FATAL_ERROR when
+ * path cannot be opened, sized or read, or is empty or larger than maxSz.
+ *
+ * On success *outSz is the file size and *outBuf is an allocation of
+ * *outSz + 1 bytes whose trailing byte is a NUL, so the contents can be
+ * handed straight to a parser that expects a C string. The caller owns
+ * that allocation and frees it with
+ * XFREE(*outBuf, HEAP_HINT, DYNAMIC_TYPE_TMP_BUFFER).
+ * Neither output is written on failure.
+ */
+int wolfCLU_ReadFileToBuffer(const char* path, long maxSz, byte** outBuf,
+        int* outSz);
+
+/**
+ * @brief Same as wolfCLU_ReadFileToBuffer(), but opens through
+ * wolfCLU_OpenExistingSecureFile() so key material cannot be read from a
+ * symlinked path. Use this for every private key read.
+ */
+int wolfCLU_ReadKeyFileToBuffer(const char* path, long maxSz, byte** outBuf,
+        int* outSz);
+
+/**
+ * @brief Open path for writing.
+ *
+ * mode is a stdio mode string and is honoured identically on every platform:
+ * "wb" truncates, "ab" appends, "rb+" updates in place without truncating.
+ *
+ * With ownerOnly set, path is kept as a 0600 regular file owned by the
+ * caller, and a symlink, non-regular file, foreign-owned file or multiply
+ * linked file is refused (errno ELOOP, EEXIST, EPERM or EMLINK) rather than
+ * written to. A refused or failed open never destroys what path already
+ * names. With ownerOnly clear this behaves like fopen(path, mode), so
+ * symlinks and special files are valid targets.
+ */
+FILE* wolfCLU_CreateSecureFile(const char* path, const char* mode,
+        int ownerOnly);
+
+/**
+ * @brief Open an existing path for in-place update, refusing to follow a
+ *        symlink. Reports ENOENT when path does not exist, ELOOP for a
+ *        symlink and EEXIST for any other non-regular target. With ownerOnly
+ *        set the file must be owned by the caller and singly linked (EPERM,
+ *        EMLINK), and its group/other access is dropped before any write.
+ */
+FILE* wolfCLU_OpenExistingSecureFile(const char* path, const char* mode,
+        int ownerOnly);
+
+/**
+ * @brief Open path for writing key material, with owner-only permissions.
+ *        Refuses (and logs) rather than writing through a symlink.
+ */
+FILE* wolfCLU_OpenKeyFile(const char* path);
+
+/**
+ * @brief Open path for writing non-secret output, with default permissions.
+ */
+FILE* wolfCLU_OpenOutFile(const char* path);
+
+/**
+ * @brief Check if two path strings name (or might name) the same file.
+ *        Returns 0 only when they are provably distinct; an inconclusive
+ *        comparison (for example a path whose parent directory cannot be
+ *        canonicalized) fails closed and reports 1.
+ */
+int wolfCLU_PathsRefEqual(const char* pathA, const char* pathB);
+
+/**
+ * @brief Open path for writing with owner-only permissions and wrap in BIO.
+ */
+WOLFSSL_BIO* wolfCLU_OpenKeyFileBio(const char* path);
+
+/**
+ * @brief Open path for writing with default permissions and wrap in BIO.
+ */
+WOLFSSL_BIO* wolfCLU_OpenOutFileBio(const char* path);
+
+/**
+ * @brief Call wolfCLU_OpenKeyFileBio or wolfCLU_OpenOutFileBio based on
+ *        isSecret.
+ */
+WOLFSSL_BIO* wolfCLU_OpenOutOrKeyFileBio(const char* path, int isSecret);
+
+#endif /* !WOLFCLU_NO_FILESYSTEM */
+
+/**
  * @brief example client
  */
 int wolfCLU_Client(int argc, char** argv);
@@ -665,7 +770,8 @@ int wolfCLU_OcspSetup(int argc, char** argv);
 const char* wolfCLU_GetDefaultHttpGet(void);
 
 /**
- * @brief Get the length of the default HTTP GET request (without null terminator)
+ * @brief Get the length of the default HTTP GET request (without null
+ *        terminator)
  * @return length of HTTP GET request
  */
 int wolfCLU_GetDefaultHttpGetLength(void);
