@@ -1158,6 +1158,35 @@ word32 wolfCLU_DerSetLength(word32 length, byte* output)
     return sz;
 }
 
+/* Parse decimal days string into [1, WOLFCLU_MAX_CERT_DAYS].
+ * Returns WOLFCLU_SUCCESS or USER_INPUT_ERROR. Avoids strtol/errno. */
+int wolfCLU_ParseDaysArg(const char* arg, int* daysOut)
+{
+    word32 days = 0;
+    const char* cur;
+
+    if (arg == NULL || daysOut == NULL || arg[0] == '\0') {
+        return USER_INPUT_ERROR;
+    }
+
+    for (cur = arg; *cur != '\0'; cur++) {
+        if (*cur < '0' || *cur > '9') {
+            return USER_INPUT_ERROR;
+        }
+        days = (days * 10) + (word32)(*cur - '0');
+        if (days > (word32)WOLFCLU_MAX_CERT_DAYS) {
+            return USER_INPUT_ERROR;
+        }
+    }
+
+    if (days < 1) {
+        return USER_INPUT_ERROR;
+    }
+
+    *daysOut = (int)days;
+    return WOLFCLU_SUCCESS;
+}
+
 void wolfCLU_ForceZero(void* mem, unsigned int len)
 {
 #ifndef WOLFSSL_NO_FORCE_ZERO

@@ -371,17 +371,23 @@ class TestCARejectsCsrCaTrue(unittest.TestCase):
     def tearDownClass(cls):
         _cleanup(cls.ca_conf, cls.req_conf, cls.csr, _tmp("index.txt"))
 
-    def test_catrue_csr_rejected_without_extensions(self):
-        """CA:TRUE CSR signed by a distinct CA, no -extensions: refused."""
-        out_name = "tmp_catrue_rejected.pem"
+    def test_catrue_csr_neutralized_without_extensions(self):
+        """CA:TRUE CSR signed by a distinct CA, no -extensions: the request
+        is signed, but issued as CA:FALSE rather than refused."""
+        out_name = "tmp_catrue_neutralized.pem"
         out = _tmp(out_name)
         self.addCleanup(lambda: _cleanup(out))
         r = run_wolfssl("ca", "-config", self.ca_conf,
                         "-in", self.csr, "-out", out_name, "-md", "sha256",
                         "-keyfile", os.path.join(CERTS_DIR, "ca-key.pem"),
                         "-cert", os.path.join(CERTS_DIR, "ca-cert.pem"))
-        self.assertNotEqual(r.returncode, 0)
-        self.assertFalse(os.path.exists(out))
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+        rt = run_wolfssl("x509", "-in", out, "-text", "-noout")
+        self.assertEqual(rt.returncode, 0, rt.stderr)
+        self.assertNotIn("CA:TRUE", rt.stdout + rt.stderr,
+                         "a CSR's CA:TRUE must not survive signing without "
+                         "an explicit -extensions override")
 
     def test_catrue_csr_accepted_with_selfsign(self):
         """CA:TRUE CSR is trusted when the operator supplies both the
@@ -520,6 +526,22 @@ class TestCAOverrideConfig(unittest.TestCase):
                         "-keyfile",
                         os.path.join(CERTS_DIR, "ca-ecc-key.pem"))
         self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_ca_days_validation(self):
+        """ca -days rejects anything outside [1, 36500] instead of using 0."""
+        for bad in ("0", "-1", "abc", "12x", "36501", ""):
+            out_name = "test_ca_days.pem"
+            out = _tmp(out_name)
+            self._clean(out)
+            r = run_wolfssl("ca", "-config", self.conf,
+                            "-in", self.csr, "-out", out_name,
+                            "-days", bad,
+                            "-cert",
+                            os.path.join(CERTS_DIR, "ca-ecc-cert.pem"),
+                            "-keyfile",
+                            os.path.join(CERTS_DIR, "ca-ecc-key.pem"))
+            self.assertNotEqual(r.returncode, 0,
+                                "-days {!r} should be rejected".format(bad))
 
 
 class TestCAKeyMismatch(unittest.TestCase):

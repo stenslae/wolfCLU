@@ -1510,32 +1510,41 @@ int wolfCLU_CertSign(WOLFCLU_CERT_SIGN* csign, WOLFSSL_X509* x509)
         wolfSSL_ASN1_INTEGER_free(s);
     }
 
+    /* A CSR's basicConstraints/CA:TRUE claim is untrusted content: issuance
+     * policy is the signer's call, not the requester's. Force CA:FALSE
+     * before extensions are applied, so the operator's own -extensions
+     * config can still assert CA:TRUE afterwards and win. -selfsign
+     * (csign->ca == x509) defaults to CA:TRUE instead, matching req -x509:
+     * there the operator supplies both the request and the signing key.
+     *
+     * Neutralizing rather than refusing keeps `ca` usable for batch signing
+     * and matches OpenSSL, which ignores CSR extensions by default
+     * (copy_extensions = none) rather than failing on them. */
+#if defined(WOLFSSL_CERT_EXT)
+    if (ret == WOLFCLU_SUCCESS) {
+        if (csign->ca != x509 && wolfSSL_X509_get_isCA(x509)) {
+            WOLFCLU_LOG(WOLFCLU_L0, "CSR requested basicConstraints CA:TRUE; "
+                    "issuing as CA:FALSE (use -extensions to override)");
+        }
+        ret = wolfCLU_SetBasicConstraintsCA(x509, csign->ca == x509);
+    }
+#else
+    /* No WOLFSSL_CERT_EXT API to neutralize a CSR's basicConstraints, so a
+     * CA:TRUE claim can only be refused here. */
+    if (ret == WOLFCLU_SUCCESS && csign->ca != x509 &&
+            wolfSSL_X509_get_isCA(x509)) {
+        wolfCLU_LogError("wolfSSL built without WOLFSSL_CERT_EXT cannot "
+                "neutralize a CSR's basicConstraints; refusing to sign a "
+                "CSR that asserts CA:TRUE");
+        ret = WOLFCLU_FATAL_ERROR;
+    }
+#endif /* WOLFSSL_CERT_EXT */
+
     /* set extensions */
     if (ret == WOLFCLU_SUCCESS && csign->ext != NULL) {
         ret = wolfCLU_setExtensions(x509, csign->config, csign->ext);
     }
 
-    /* A CSR's basicConstraints/CA:TRUE claim is untrusted content; only
-     * trust it when the operator supplies both the request and the signing
-     * key (-selfsign, csign->ca == x509). Otherwise refuse to sign a CSR
-     * that asserts CA:TRUE unless the operator's own -extensions config
-     * explicitly sets basicConstraints. */
-    if (ret == WOLFCLU_SUCCESS && csign->ca != x509 &&
-            wolfSSL_X509_get_isCA(x509)) {
-        int explicitBc = 0;
-
-        if (csign->ext != NULL && csign->config != NULL) {
-            if (wolfSSL_NCONF_get_string(csign->config, csign->ext,
-                        "basicConstraints") != NULL) {
-                explicitBc = 1;
-            }
-        }
-        if (!explicitBc) {
-            wolfCLU_LogError("CSR asserts CA:TRUE; refusing to sign without "
-                    "explicit -extensions to set basicConstraints");
-            ret = WOLFCLU_FATAL_ERROR;
-        }
-    }
 
     /* sign the certificate */
     if (ret == WOLFCLU_SUCCESS) {

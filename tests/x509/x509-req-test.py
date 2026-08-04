@@ -473,6 +473,18 @@ class TestReqNew(unittest.TestCase):
         self._addext_fails("subjectAltName=otherName:foo",
                            "test_req_addext_badtype.crt")
 
+    def test_req_days_validation(self):
+        """req -days rejects anything outside [1, 36500] instead of using 0."""
+        for bad in ("0", "-1", "abc", "12x", "36501", ""):
+            tmp = _tmp("test_req_days.cert")
+            self._clean(tmp)
+            r = run_wolfssl("req", "-new", "-days", bad,
+                            "-key", os.path.join(CERTS_DIR, "server-key.pem"),
+                            "-subj", "O=wolfSSL/C=US/CN=wolfSSL",
+                            "-out", tmp, "-x509")
+            self.assertNotEqual(r.returncode, 0,
+                                "-days {!r} should be rejected".format(bad))
+
 
 @unittest.skipIf(no_filesystem(), "filesystem support disabled")
 class TestReqPemDerRoundTrip(unittest.TestCase):

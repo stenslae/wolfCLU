@@ -112,6 +112,79 @@ static const struct option cert_options[] = {
 };
 #endif
 
+int wolfCLU_FreeKeyCtx(CLU_KEY_CTX* ctx)
+{
+    if (ctx == NULL) {
+        return BAD_FUNC_ARG;
+    }
+    if (ctx->evp != NULL) {
+        wolfSSL_EVP_PKEY_free(ctx->evp);
+        ctx->evp = NULL;
+    }
+    if (ctx->key != NULL && ctx->keyFree != NULL) {
+        ctx->keyFree(&ctx->key);
+    }
+    ctx->key     = NULL;
+    ctx->keyFree = NULL;
+    ctx->keyType = 0;
+    ctx->level   = 0;
+    return WOLFCLU_SUCCESS;
+}
+
+int wolfCLU_LoadKey(const char* file, CLU_KEY_CTX* ctx)
+{
+    WOLFSSL_BIO* keyBio = NULL;
+
+    if (file == NULL || ctx == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
+    XMEMSET(ctx, 0, sizeof(*ctx));
+
+    keyBio = wolfSSL_BIO_new_file(file, "rb");
+    if (keyBio != NULL) {
+        ctx->evp = wolfSSL_PEM_read_bio_PrivateKey(keyBio, NULL, NULL, NULL);
+        wolfSSL_BIO_free(keyBio);
+    }
+
+    if (ctx->evp == NULL) {
+        /* Algorithms EVP cannot represent hook in ahead of this by filling
+         * ctx->key themselves; nothing here accepted the file. */
+        wolfCLU_LogError("Failed to load key from %s", file);
+        return USER_INPUT_ERROR;
+    }
+    return WOLFCLU_SUCCESS;
+}
+
+/* Calls wolfCLU_extenstionGetObjectNID(), which is only compiled when a
+ * filesystem is available; the sole caller (wolfCLU_CertSign) is behind the
+ * same guard. */
+#if defined(WOLFSSL_CERT_EXT) && !defined(WOLFCLU_NO_FILESYSTEM)
+/* Set (non-critical) basicConstraints CA:TRUE or CA:FALSE on x509.
+ * Returns WOLFCLU_SUCCESS or WOLFCLU_FATAL_ERROR. */
+int wolfCLU_SetBasicConstraintsCA(WOLFSSL_X509* x509, int ca)
+{
+    WOLFSSL_X509_EXTENSION* bcExt = wolfSSL_X509_EXTENSION_new();
+    WOLFSSL_ASN1_OBJECT* obj = wolfCLU_extenstionGetObjectNID(bcExt,
+            NID_basic_constraints, 0);
+
+    /* NULL means bcExt was already freed internally; only free on success. */
+    if (obj == NULL) {
+        wolfCLU_LogError("Failed to set basicConstraints");
+        return WOLFCLU_FATAL_ERROR;
+    }
+
+    obj->ca = ca ? 1 : 0;
+    if (wolfSSL_X509_add_ext(x509, bcExt, -1) != WOLFSSL_SUCCESS) {
+        wolfCLU_LogError("Failed to set basicConstraints");
+        wolfSSL_X509_EXTENSION_free(bcExt);
+        return WOLFCLU_FATAL_ERROR;
+    }
+    wolfSSL_X509_EXTENSION_free(bcExt);
+    return WOLFCLU_SUCCESS;
+}
+#endif /* WOLFSSL_CERT_EXT && !WOLFCLU_NO_FILESYSTEM */
+
 /* return WOLFCLU_SUCCESS on success */
 int wolfCLU_certSetup(int argc, char **argv)
 {
