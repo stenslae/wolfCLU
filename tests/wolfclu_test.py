@@ -95,15 +95,30 @@ def run_wolfssl(*args, stdin_data=None, timeout=60, stdout=None):
     return subprocess.run(cmd, **kwargs)
 
 
+_NO_FILESYSTEM = None
+
+
+def no_filesystem():
+    """True when the build under test was configured --disable-filesystem,
+    in which case every file-backed subcommand refuses to run.
+
+    Use as a class decorator:
+        @unittest.skipIf(no_filesystem(), "filesystem support disabled")
+    """
+    global _NO_FILESYSTEM
+    if _NO_FILESYSTEM is None:
+        _NO_FILESYSTEM = False
+        config_log = os.path.join(".", "config.log")
+        if os.path.isfile(config_log):
+            with open(config_log, "r") as f:
+                _NO_FILESYSTEM = "disable-filesystem" in f.read()
+    return _NO_FILESYSTEM
+
+
 def skip_if_no_filesystem():
-    """Raise SkipTest when the build under test was configured with
-    --disable-filesystem, in which case every file-backed subcommand refuses
-    to run. Call from setUpClass."""
-    config_log = os.path.join(".", "config.log")
-    if os.path.isfile(config_log):
-        with open(config_log, "r") as f:
-            if "disable-filesystem" in f.read():
-                raise unittest.SkipTest("filesystem support disabled")
+    """no_filesystem() as a SkipTest. Call from setUpClass."""
+    if no_filesystem():
+        raise unittest.SkipTest("filesystem support disabled")
 
 
 def is_fips():
