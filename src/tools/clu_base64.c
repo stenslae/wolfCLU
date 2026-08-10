@@ -82,10 +82,8 @@ int wolfCLU_Base64Setup(int argc, char** argv)
                 break;
 
             case WOLFCLU_OUTFILE:
-                bioOut = wolfSSL_BIO_new_file(optarg, "wb");
+                    bioOut = wolfCLU_OpenOutFileBio(optarg);
                 if (bioOut == NULL) {
-                    wolfCLU_LogError("unable to open output file %s",
-                            optarg);
                     if (bioIn != NULL) {
                         wolfSSL_BIO_free(bioIn);
                     }
