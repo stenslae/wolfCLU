@@ -1241,4 +1241,4 @@ int wolfCLU_sign_data_xmssmt(byte* data, char* out, int fSz, char* privKey)
 #endif  /* WOLFSSL_HAVE_XMSS */
 }
 
-#endif /* !WOLFCLU_NO_FILESYSTEM */
+
